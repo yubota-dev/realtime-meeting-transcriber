@@ -1,0 +1,18 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# 会議ログ・要約（個人情報・社外秘・著作物を含むため絶対にコミットしない）
+data/
+*.jsonl
+*_summary.md
+
+# 録画・音声
+*.mp4
+*.wav
+
+# モデル
+*.bin
+*.pt
