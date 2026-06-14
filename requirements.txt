@@ -2,4 +2,6 @@ faster-whisper
 silero-vad
 pyaudiowpatch
 scipy
+numpy
+torch
 requests
