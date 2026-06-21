@@ -1,5 +1,9 @@
 """Web会議リアルタイム文字起こし＋離席要約＋会議後要約。
 
+相手の声（ループバック）と自分の声（マイク）の2系統を取り込む。
+マイクが見つからない場合は相手(loopback)のみで続行する。
+タイムスタンプは録音時刻ベースなので、要約・離席判定は時刻で行う。
+
 実行: python -m meeting.run   （プロジェクトルートで）
 
 コマンド:
@@ -24,7 +28,7 @@ class MeetingSession:
         os.makedirs(LOG_DIR, exist_ok=True)
         self.entries = []
         self.lock = threading.Lock()
-        self.away_index = None
+        self.away_ts = None
         ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.jsonl_path = os.path.join(LOG_DIR, f"{ts}.jsonl")
         self.summary_path = os.path.join(LOG_DIR, f"{ts}_summary.md")
@@ -33,28 +37,35 @@ class MeetingSession:
     def add_entry(self, entry):
         with self.lock:
             self.entries.append(entry)
-        line = f"[{entry['ts']}][{entry['lang']}] {entry['original']}"
+        speaker = entry.get("speaker", "")
+        line = f"[{entry['ts']}][{speaker}/{entry['lang']}] {entry['original']}"
         if entry["ja"]:
             line += f"\n        → {entry['ja']}"
         print(line)
         self._jsonl.write(json.dumps(entry, ensure_ascii=False) + "\n")
         self._jsonl.flush()
 
-    def _snapshot(self, start_index=0):
+    def _snapshot(self, since_ts=None):
+        """ts でソートしたコピーを返す。since_ts 指定時はそれ以降のみ。
+        （確定順＝処理完了順なので、時刻順に並べ直して整合させる）"""
         with self.lock:
-            return list(self.entries[start_index:])
+            items = list(self.entries)
+        items.sort(key=lambda e: e["ts"])
+        if since_ts is not None:
+            items = [e for e in items if e["ts"] >= since_ts]
+        return items
 
     def mark_away(self):
         with self.lock:
-            self.away_index = len(self.entries)
+            self.away_ts = dt.datetime.now().strftime("%H:%M:%S")
         print(">>> 離席を記録しました。戻ったら b で要約します。")
 
     def summarize_away(self):
-        if self.away_index is None:
+        if self.away_ts is None:
             print(">>> 離席が記録されていません（a で記録）")
             return
-        window = self._snapshot(self.away_index)
-        self.away_index = None
+        window = self._snapshot(since_ts=self.away_ts)
+        self.away_ts = None
         if not window:
             print(">>> 離席中の発言はありませんでした")
             return
@@ -63,7 +74,7 @@ class MeetingSession:
 
     def summarize_recent(self, minutes=5):
         cutoff = (dt.datetime.now() - dt.timedelta(minutes=minutes)).strftime("%H:%M:%S")
-        window = [e for e in self._snapshot() if e["ts"] >= cutoff]
+        window = self._snapshot(since_ts=cutoff)
         if not window:
             print(">>> 直近の発言はありません")
             return
@@ -90,11 +101,23 @@ class MeetingSession:
 def main():
     stop_event = threading.Event()
     session = MeetingSession()
-    recorder = audio.LoopbackRecorder()
-    trans = transcriber.Transcriber(recorder.q, session.add_entry, stop_event)
+
+    # 相手の声（ループバック）は必須、自分の声（マイク）は任意
+    recorders = []
+    recorders.append(("相手", audio.LoopbackRecorder()))
+    try:
+        recorders.append(("自分", audio.MicRecorder()))
+    except RuntimeError as ex:
+        print(f"[warn] マイクを初期化できません: {ex}")
+        print("[warn] 相手(loopback)のみで続行します。"
+              "デバイス一覧は  python -m meeting.audio")
+
+    sources = [(label, rec.q) for label, rec in recorders]
+    trans = transcriber.Transcriber(sources, session.add_entry, stop_event)
 
     trans.start()
-    recorder.start()
+    for _, rec in recorders:
+        rec.start()
     print(
         "\n=== コマンド ===\n"
         " a : 離席を記録\n"
@@ -121,7 +144,8 @@ def main():
     finally:
         print("\n>>> 終了処理中...")
         stop_event.set()
-        recorder.stop()
+        for _, rec in recorders:
+            rec.stop()
         trans.join(timeout=10)
         session.summarize_full()
         session.close()

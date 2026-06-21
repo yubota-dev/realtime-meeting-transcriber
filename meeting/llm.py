@@ -16,6 +16,7 @@ CHUNK_SIZE = 40          # 要約の分割単位（発言数）
 SYSTEM = (
     "あなたは技術打ち合わせの議事録アシスタントです。出力は日本語。"
     "憶測で補わず、記録にある内容だけを要約すること。"
+    "発言には話者ラベル（自分／相手）が付いている。"
 )
 
 
@@ -47,7 +48,11 @@ def _format(entries):
     lines = []
     for e in entries:
         body = e.get("ja") or e.get("original", "")
-        lines.append(f"[{e.get('ts', '')}] {body}")
+        prefix = f"[{e.get('ts', '')}]"
+        spk = e.get("speaker")
+        if spk:
+            prefix += f" {spk}:"
+        lines.append(f"{prefix} {body}")
     return "\n".join(lines)
 
 
