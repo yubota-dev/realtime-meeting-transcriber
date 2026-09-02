@@ -1,6 +1,7 @@
 # Python
 venv/
 .venv/
+venv'/
 __pycache__/
 *.pyc
 
@@ -12,7 +13,13 @@ data/
 # 録画・音声
 *.mp4
 *.wav
+refs/
+benchmark_asr_report*.json
 
 # モデル
 *.bin
 *.pt
+
+# 誤って置かれた配布物
+files.zip
+

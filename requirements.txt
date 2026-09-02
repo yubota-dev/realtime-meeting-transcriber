@@ -1,7 +1,8 @@
-faster-whisper
-silero-vad
-pyaudiowpatch
-scipy
-numpy
-torch
-requests
+faster-whisper==1.2.1
+silero-vad==6.2.1
+PyAudioWPatch==0.2.12.8
+scipy==1.17.1
+numpy==2.4.6
+torch==2.12.0
+requests==2.34.2
+opencc-python-reimplemented==0.1.7

@@ -15,13 +15,29 @@ LOG_DIR = "data/meetings"
 
 
 def load_entries(path: str) -> list:
+    """append-only JSONLを復元し、translation updateを元eventへ反映する。"""
     entries = []
+    by_id = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:
-                entries.append(json.loads(line))
-    return entries
+            if not line:
+                continue
+            record = json.loads(line)
+            if record.get("type") == "translation":
+                target = by_id.get(record.get("event_id"))
+                if target:
+                    target.update({k: v for k, v in record.items()
+                                   if k not in ("type", "event_id")})
+                continue
+            if record.get("type") not in (None, "transcript"):
+                continue
+            record.setdefault("type", "transcript")
+            record.setdefault("event_id", f"legacy-{len(entries) + 1:06d}")
+            entries.append(record)
+            by_id[record["event_id"]] = record
+    accuracy = [e for e in entries if e.get("pass") == "accuracy"]
+    return accuracy or [e for e in entries if e.get("type") == "transcript"]
 
 
 def main():
@@ -41,12 +57,19 @@ def main():
         return
 
     print(f"{len(entries)} 件の発言 → 要約生成中...\n")
-    summary = llm.summarize_log(entries, "会議全体")
+    try:
+        data, summary = llm.summarize_with_data(entries, "会議全体")
+    except Exception as ex:
+        print(f"要約失敗: {ex}")
+        return
     print(summary)
 
     summary_path = path.replace(".jsonl", "_summary.md")
     with open(summary_path, "w", encoding="utf-8") as f:
-        f.write(f"# 会議要約（再生成）\n\n{summary}\n")
+        f.write(summary + "\n")
+    json_path = path.replace(".jsonl", "_summary.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
     print(f"\n>>> 保存しました: {summary_path}")
 
 
